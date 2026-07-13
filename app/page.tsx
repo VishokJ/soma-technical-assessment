@@ -2,6 +2,27 @@
 import { Todo } from '@prisma/client';
 import { useState, useEffect } from 'react';
 
+function TodoImage({ src, alt }: { src: string; alt: string }) {
+  const [loaded, setLoaded] = useState(false);
+  return (
+    <div className="relative w-16 h-16 rounded-md overflow-hidden bg-gray-200 flex-shrink-0 mr-4">
+      {!loaded && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="w-5 h-5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+        </div>
+      )}
+      <img
+        src={src}
+        alt={alt}
+        onLoad={() => setLoaded(true)}
+        className={`w-full h-full object-cover transition-opacity duration-300 ${
+          loaded ? 'opacity-100' : 'opacity-0'
+        }`}
+      />
+    </div>
+  );
+}
+
 export default function Home() {
   const [newTodo, setNewTodo] = useState('');
   const [newDueDate, setNewDueDate] = useState('');
@@ -80,19 +101,22 @@ export default function Home() {
               key={todo.id}
               className="flex justify-between items-center bg-white bg-opacity-90 p-4 mb-4 rounded-lg shadow-lg"
             >
-              <div className="flex flex-col">
-                <span className="text-gray-800">{todo.title}</span>
-                {todo.dueDate && (
-                  <span
-                    className={
-                      new Date(todo.dueDate) < new Date()
-                        ? 'text-red-500 text-sm'
-                        : 'text-gray-500 text-sm'
-                    }
-                  >
-                    Due {new Date(todo.dueDate).toLocaleDateString(undefined, { timeZone: 'UTC' })}
-                  </span>
-                )}
+              <div className="flex items-center flex-grow">
+                {todo.imageUrl && <TodoImage src={todo.imageUrl} alt={todo.title} />}
+                <div className="flex flex-col">
+                  <span className="text-gray-800">{todo.title}</span>
+                  {todo.dueDate && (
+                    <span
+                      className={
+                        new Date(todo.dueDate) < new Date()
+                          ? 'text-red-500 text-sm'
+                          : 'text-gray-500 text-sm'
+                      }
+                    >
+                      Due {new Date(todo.dueDate).toLocaleDateString(undefined, { timeZone: 'UTC' })}
+                    </span>
+                  )}
+                </div>
               </div>
               <button
                 onClick={() => handleDeleteTodo(todo.id)}
