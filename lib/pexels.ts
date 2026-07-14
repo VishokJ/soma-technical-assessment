@@ -5,7 +5,11 @@ export async function searchPexelsImage(query: string): Promise<string | null> {
   try {
     const res = await fetch(
       `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=1`,
-      { headers: { Authorization: apiKey } }
+      {
+        headers: { Authorization: apiKey },
+        // a hung Pexels must not stall todo creation; imageUrl is nullable
+        signal: AbortSignal.timeout(3000),
+      }
     );
     if (!res.ok) return null;
 
