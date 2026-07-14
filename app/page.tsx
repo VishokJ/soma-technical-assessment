@@ -123,6 +123,21 @@ const DependencyGraph = memo(function DependencyGraph({
     columns.get(d)!.push(t);
   }
 
+  // Order each column so nodes sit near the average row of their
+  // dependencies (barycenter heuristic) — fewer edge crossings.
+  const rowOf = new Map<number, number>();
+  for (const day of Array.from(columns.keys()).sort((a, b) => a - b)) {
+    const col = columns.get(day)!;
+    const barycenter = (t: TodoItem) => {
+      const rows = (depIds.get(t.id) ?? [])
+        .map((dep) => rowOf.get(dep))
+        .filter((r): r is number => r !== undefined);
+      return rows.length > 0 ? rows.reduce((s, r) => s + r, 0) / rows.length : 0;
+    };
+    col.sort((a, b) => barycenter(a) - barycenter(b));
+    col.forEach((t, i) => rowOf.set(t.id, i));
+  }
+
   const pos = new Map<number, { x: number; y: number }>();
   for (const [d, col] of columns) {
     col.forEach((t, i) => pos.set(t.id, { x: 20 + d * COL_GAP, y: 20 + i * ROW_GAP }));
@@ -143,33 +158,62 @@ const DependencyGraph = memo(function DependencyGraph({
       <p className="text-sm text-gray-500 mb-2">Critical path highlighted in red.</p>
       <svg width={width} height={height}>
         <defs>
-          <marker id="arrow" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
+          {/* userSpaceOnUse keeps arrowheads a constant size instead of
+              scaling with strokeWidth (the thick critical edges otherwise
+              get huge triangles that crowd the nodes) */}
+          <marker id="arrow" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto">
             <path d="M0,0 L8,4 L0,8 z" fill="#9ca3af" />
           </marker>
-          <marker id="arrow-critical" markerWidth="8" markerHeight="8" refX="8" refY="4" orient="auto">
+          <marker id="arrow-critical" markerUnits="userSpaceOnUse" markerWidth="9" markerHeight="8" refX="8" refY="4" orient="auto">
             <path d="M0,0 L8,4 L0,8 z" fill="#ef4444" />
           </marker>
         </defs>
-        {todos.flatMap((t) =>
-          (depIds.get(t.id) ?? []).map((dep) => {
-            const from = pos.get(dep);
-            const to = pos.get(t.id);
-            if (!from || !to) return null;
-            const critical = criticalEdges.has(`${dep}->${t.id}`);
+        {(() => {
+          // Curved edges with endpoints spread along each node's side, so
+          // arrows into the same node never stack and column-skipping
+          // edges arc between rows instead of cutting through boxes.
+          const edges = todos.flatMap((t) =>
+            (depIds.get(t.id) ?? [])
+              .filter((dep) => pos.has(dep) && pos.has(t.id))
+              .map((dep) => ({ from: dep, to: t.id, sy: 0, ty: 0 }))
+          );
+          const bySource = new Map<number, typeof edges>();
+          const byTarget = new Map<number, typeof edges>();
+          for (const e of edges) {
+            if (!bySource.has(e.from)) bySource.set(e.from, []);
+            bySource.get(e.from)!.push(e);
+            if (!byTarget.has(e.to)) byTarget.set(e.to, []);
+            byTarget.get(e.to)!.push(e);
+          }
+          for (const [id, group] of bySource) {
+            group.sort((a, b) => pos.get(a.to)!.y - pos.get(b.to)!.y);
+            group.forEach((e, i) => {
+              e.sy = pos.get(id)!.y + (NODE_H * (i + 1)) / (group.length + 1);
+            });
+          }
+          for (const [id, group] of byTarget) {
+            group.sort((a, b) => pos.get(a.from)!.y - pos.get(b.from)!.y);
+            group.forEach((e, i) => {
+              e.ty = pos.get(id)!.y + (NODE_H * (i + 1)) / (group.length + 1);
+            });
+          }
+          return edges.map((e) => {
+            const sx = pos.get(e.from)!.x + NODE_W;
+            const tx = pos.get(e.to)!.x;
+            const bend = Math.max(40, (tx - sx) / 2);
+            const critical = criticalEdges.has(`${e.from}->${e.to}`);
             return (
-              <line
-                key={`${dep}->${t.id}`}
-                x1={from.x + NODE_W}
-                y1={from.y + NODE_H / 2}
-                x2={to.x}
-                y2={to.y + NODE_H / 2}
+              <path
+                key={`${e.from}->${e.to}`}
+                d={`M ${sx} ${e.sy} C ${sx + bend} ${e.sy}, ${tx - bend} ${e.ty}, ${tx} ${e.ty}`}
+                fill="none"
                 stroke={critical ? '#ef4444' : '#9ca3af'}
-                strokeWidth={critical ? 2.5 : 1.5}
+                strokeWidth={critical ? 2 : 1.5}
                 markerEnd={critical ? 'url(#arrow-critical)' : 'url(#arrow)'}
               />
             );
-          })
-        )}
+          });
+        })()}
         {todos.map((t) => {
           const p = pos.get(t.id)!;
           const critical = criticalNodes.has(t.id);
